@@ -1,0 +1,182 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Government Budget Calculator</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f2f2f2; padding: 20px; color: #222; }
+    h1 { text-align: center; margin-bottom: 20px; }
+    .container { max-width: 750px; margin: auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 0 8px rgba(0,0,0,0.1); }
+    input, button { padding: 8px; margin: 5px 0; width: 100%; box-sizing: border-box; }
+    button { background-color: #3b82f6; color: white; border: none; border-radius: 5px; cursor: pointer; }
+    button.save { background-color: #10b981; margin-top: 15px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    th, td { padding: 10px; border-bottom: 1px solid #ccc; text-align: left; }
+    label { font-weight: bold; display: block; margin-top: 10px; }
+    .chart { display: flex; justify-content: space-around; align-items: flex-end; height: 300px; margin-top: 30px; border-left: 1px solid #ccc; border-bottom: 1px solid #ccc; padding-left: 30px; position: relative; }
+    .chart .bar { position: relative; width: 60px; background-color: #ccc; border-radius: 4px 4px 0 0; display: flex; align-items: flex-end; justify-content: center; }
+    .chart .bar.revenue { background-color: #666; }
+    .chart .bar.budget { background-color: #2e7dd7; }
+    .chart .bar.used { background-color: #10b981; }
+    .chart .bar span { writing-mode: vertical-rl; transform: rotate(180deg); color: white; font-weight: bold; padding-bottom: 5px; }
+    .tooltip { position: absolute; background: white; border: 1px solid #ccc; padding: 6px 10px; border-radius: 5px; font-size: 14px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); display: none; pointer-events: none; }
+    .deficit { color: red; font-weight: bold; margin-top: 10px; }
+    .y-label { position: absolute; left: 0; bottom: 0; transform: translate(-100%, 0); color: #888; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Government Budget Calculator</h1>
+
+    <label>Total Revenue (₽)</label>
+    <input type="text" id="revenueInput" placeholder="e.g., 1,000,000" />
+
+    <label>Budget Allocation %</label>
+    <input type="text" id="budgetPercentInput" value="80" />
+
+    <h3>Add Ministry</h3>
+    <input type="text" id="ministryName" placeholder="Ministry Name" />
+    <input type="text" id="ministryPercent" placeholder="% of Budget" />
+    <button onclick="addMinistry()">Add Ministry</button>
+
+    <h3>Budget Allocation</h3>
+    <table id="ministryTable">
+      <thead>
+        <tr><th>Ministry</th><th>% of Budget</th><th>Amount (₽)</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+    <p><strong>Remaining Budget:</strong> <span id="remaining">₽0.00</span></p>
+    <p id="deficit" class="deficit" style="display:none;">Deficit: ₽0.00</p>
+
+    <div class="chart" id="chart">
+      <div class="y-label">₽</div>
+      <div class="bar revenue" data-label="Revenue"><span id="label-revenue"></span></div>
+      <div class="bar budget" data-label="Budget"><span id="label-budget"></span></div>
+      <div class="bar used" data-label="Used"><span id="label-used"></span></div>
+    </div>
+    <div class="tooltip" id="tooltip"></div>
+
+    <button class="save" onclick="downloadCSV()">Download as Google Sheets File (.csv)</button>
+  </div>
+
+  <script>
+    const ministries = [];
+    const revenueInput = document.getElementById('revenueInput');
+    const budgetPercentInput = document.getElementById('budgetPercentInput');
+    const ministryTable = document.getElementById('ministryTable').getElementsByTagName('tbody')[0];
+    const remainingDisplay = document.getElementById('remaining');
+    const deficitDisplay = document.getElementById('deficit');
+    const chart = document.getElementById('chart');
+    const bars = {
+      revenue: document.querySelector('.bar.revenue'),
+      budget: document.querySelector('.bar.budget'),
+      used: document.querySelector('.bar.used')
+    };
+    const labels = {
+      revenue: document.getElementById('label-revenue'),
+      budget: document.getElementById('label-budget'),
+      used: document.getElementById('label-used')
+    };
+    const tooltip = document.getElementById('tooltip');
+
+    function parseNum(value) {
+      return parseFloat((value||"0").replace(/,/g,"").trim())||0;
+    }
+    function formatRubles(num) {
+      return "₽" + num.toLocaleString('en-EN',{minimumFractionDigits:2});
+    }
+    function addMinistry() {
+      const name = ministryName.value.trim();
+      const percent = parseNum(ministryPercent.value);
+      if(!name||percent<=0) return;
+      ministries.push({name, percent});
+      ministryName.value = '';
+      ministryPercent.value = '';
+      updateTable();
+    }
+    function updateTable() {
+      const revenue = parseNum(revenueInput.value);
+      const budgetPct = parseNum(budgetPercentInput.value);
+      const totalBudget = revenue * budgetPct/100;
+      let usedBudget = 0;
+      ministryTable.innerHTML = '';
+      ministries.forEach(min => {
+        const amt = totalBudget * min.percent/100;
+        usedBudget += amt;
+        const row = ministryTable.insertRow();
+        row.insertCell(0).innerText = min.name;
+        row.insertCell(1).innerText = min.percent + '%';
+        row.insertCell(2).innerText = formatRubles(amt);
+      });
+      const remaining = totalBudget - usedBudget;
+      remainingDisplay.textContent = formatRubles(remaining);
+      if(remaining<0){
+        deficitDisplay.textContent = 'Deficit: ' + formatRubles(-remaining);
+        deficitDisplay.style.display = 'block';
+      } else {
+        deficitDisplay.style.display = 'none';
+      }
+      drawBars(revenue, totalBudget, usedBudget);
+    }
+    function drawBars(rev, bud, used) {
+      const max = Math.max(rev, bud, used, 1);
+      const height = 260; // px
+      [
+        {key:'revenue', value:rev},
+        {key:'budget', value:bud},
+        {key:'used', value:used}
+      ].forEach(item => {
+        const h = (item.value / max) * height;
+        bars[item.key].style.height = h + 'px';
+        labels[item.key].innerText = item.value ? item.value.toLocaleString() : '';
+      });
+    }
+    chart.addEventListener('mousemove', e => {
+      const barElem = e.target.closest('.bar');
+      if(barElem) {
+        const key = barElem.classList.contains('revenue') ? 'revenue' :
+                    barElem.classList.contains('budget') ? 'budget' : 'used';
+        tooltip.style.display='block';
+        tooltip.innerText = barElem.datasetLabel + ': ' + formatRubles(parseNum(labels[key].innerText));
+        tooltip.style.left = e.pageX + 10 + 'px';
+        tooltip.style.top = e.pageY - 20 + 'px';
+      } else {
+        tooltip.style.display='none';
+      }
+    });
+    chart.addEventListener('mouseleave', () => tooltip.style.display='none');
+
+    revenueInput.addEventListener('input', updateTable);
+    budgetPercentInput.addEventListener('input', updateTable);
+
+    function downloadCSV(){
+      const revenue = parseNum(revenueInput.value);
+      const budgetPct = parseNum(budgetPercentInput.value);
+      const budget = revenue * budgetPct/100;
+      const used = ministries.reduce((s,m)=>s + budget*m.percent/100,0);
+      const remaining = budget - used;
+      const deficit = remaining<0 ? -remaining : 0;
+      let csv = "Field,Value\n";
+      csv += `Revenue,${revenue}\n`;
+      csv += `Budget %,${budgetPct}\n`;
+      csv += `Total Budget,${budget}\n`;
+      csv += `Used Budget,${used}\n`;
+      csv += `Remaining Budget,${remaining}\n`;
+      csv += `Deficit,${deficit}\n\n`;
+      csv += "Ministry Name,Percent of Budget,Allocated ₽\n";
+      ministries.forEach(m=>{
+        const amt = budget*m.percent/100;
+        csv += `${m.name},${m.percent},${amt}\n`;
+      });
+      const blob = new Blob([csv],{type:"text/csv"});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download="government_budget_data.csv";
+      a.click(); URL.revokeObjectURL(url);
+    }
+  </script>
+</body>
+</html>
